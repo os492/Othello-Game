@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Othello Board</title>
+
+    <style>
+        .container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 70vh;
+        }
+
+        .board_grid {
+            display: grid;
+            grid-template-columns: repeat({{game_board|length}}, 60px);
+            grid-template-rows: repeat({{game_board|length}}, 60px);
+            gap: 2px;
+            background: #010000;
+            padding: 10px;
+            width: fit-content;
+        }
+
+        .cell {
+            width: 60px;
+            height: 60px;
+            background: #3a4046;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 4px;
+        }
+
+        .cell:hover {
+            background: #dd0712;
+        }
+
+        .piece {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+        }
+        .black { background: #0c0153; }
+        .white { background: #1e93ed; }
+
+        #messageBox {
+            width: 80%;
+            height: 10vh;
+            border: 1px solid black;
+            padding: 10px;
+            overflow-y: auto;
+            white-space: pre-line;
+            line-height: 1em;
+        }
+
+        .controls {
+            margin-top: 10px;
+        }
+
+        button {
+            padding: 8px 16px;
+            margin-right: 5px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+    </style>
+
+<script>
+
+// Pulls flask variables into JavaScript
+let board = {{ game_board|tojson }};
+let moveCounter = {{ move_counter }};
+let currentPlayer = "{{ current_player }}";
+
+// Updates the message box when there is an error message etc
+function updateMessageBox(msg) {
+    const box = document.getElementById("messageBox");
+    box.innerText += msg + "\n";
+    box.scrollTop = box.scrollHeight;
+}
+
+// Draws the board
+function drawBoard() {
+    for (let y = 0; y < 8; y++) {
+        for (let x = 0; x < 8; x++) {
+            const cell = document.getElementById(`cell-${x}-${y}`);
+            if (!cell) continue;
+
+            cell.innerHTML = "";
+            const v = board[y][x];
+
+            if (v === "Dark ")  cell.innerHTML = `<div class="piece black"></div>`;
+            if (v === "Light") cell.innerHTML = `<div class="piece white"></div>`;
+        }
+    }
+}
+
+// Sends the move to the back end
+function sendMove(x, y, url) {
+    fetch(`${url}?x=${x}&y=${y}`)
+        .then(r => r.json())
+        .then(data => {
+
+            if (data.board) {
+                board = data.board;
+                drawBoard();
+            }
+
+            if (data.status === "success") {
+                
+                currentPlayer = data.player;
+                moveCounter = data.movesLeft;
+
+                updateMessageBox(`Move accepted at (${x}, ${y})`);
+                updateMessageBox(`Next turn: ${data.player}`);
+                updateMessageBox(`Moves left: ${data.movesLeft}`);
+            }
+
+            if (data.status === "fail") {
+                updateMessageBox(`Invalid move at (${x}, ${y}): ${data.message}`);
+            }
+
+            if (data.finished) {
+                updateMessageBox("GAME OVER");
+                updateMessageBox(data.message);
+                updateMessageBox(`Score == Dark: ${data.scoreDark}, Light: ${data.scoreLight}`);
+            }
+        })
+        .catch(err => console.error(err));
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+
+    // Adds the save game button functionality when the save button has been clicked
+    document.getElementById("saveBtn").addEventListener("click", () => {
+        const state = {board: board, move_counter: moveCounter, current_player: currentPlayer}; // The board state, move_counter and current_player are all saved so that they can be output again when the game is loaded
+        localStorage.setItem("savedGame", JSON.stringify(state));
+        alert("Game saved");
+    });
+
+    // Adds the load game button functionality when the load button has been clicked
+    document.getElementById("loadBtn").addEventListener("click", () => {
+        const saved = localStorage.getItem("savedGame"); // Retrieves the saved JSON of the board, move_counter and current_player
+        if (!saved) return alert("No saved game"); // Checks if there is a game saved otherwise it cannot load anything
+
+        const state = JSON.parse(saved);
+
+        board = state.board;
+        moveCounter = state.move_counter;
+        currentPlayer = state.current_player;
+
+        drawBoard();
+
+        updateMessageBox(`Game loaded. Next turn: ${currentPlayer}`); // If successful, a message is output in the message box letting the user know that the loading has been successful, who's turn it is and how many moves there now are
+        updateMessageBox(`Moves left: ${moveCounter}`);
+
+        fetch("/load_board", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(state)
+        });
+    });
+
+    drawBoard(); // Draws the board once the page loads
+});
+</script>
+
+</head>
+
+<body>
+<h1 style="text-align:center;">Othello/Reversi Game</h1>
+
+<div class="container">
+    <div class="board_grid">
+        {% for i in range(game_board|length) %}
+            {% for j in range(game_board|length) %}
+                <div
+                    class="cell"
+                    id="cell-{{ j }}-{{ i }}"
+                    onclick="sendMove({{ j+1 }}, {{ i+1 }}, '/move')">
+                </div>
+            {% endfor %}
+        {% endfor %}
+    </div>
+</div>
+
+<div class="controls"> <!-- Creates the container for the save and load buttons -->
+    <button id="saveBtn">Save Position</button> 
+    <button id="loadBtn">Load Position</button>
+</div>
+
+<div id="messageBox">Game Log:</div>
+
+</body>
+</html>
